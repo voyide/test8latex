@@ -12,6 +12,8 @@ dependencies:
   flutter_markdown: ^0.7.3
   flutter_math_fork: ^0.7.2
   shared_preferences: ^2.2.2
+  markdown: ^3.0.0
+
 
 flutter:
   uses-material-design: true
