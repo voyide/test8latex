@@ -944,58 +944,61 @@ class _ExamScreenState extends State<ExamScreen> {
             )),
           ]),
         ),
-        body: Column(
-          children: [
-            LinearProgressIndicator(value: (_currentIndex + 1) / widget.questions.length, backgroundColor: paperBg, color: inkBlack, minHeight: 4),
-            Expanded(child: PageView.builder(
-              controller: _pageController, onPageChanged: _onPageChanged, itemCount: widget.questions.length,
-              itemBuilder: (context, idx) {
-                final question = widget.questions[idx]; final qId = question.id;
-                return ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: [
-                    Text('ID: $qId [${idx + 1}/${widget.questions.length}]', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.grey)),
-                    const Divider(height: 32),
-                    // CUSTOM PARSER INJECTED HERE
-                    BrutalistMarkdown(data: question.text),
-                    const SizedBox(height: 32),
-                    ...List.generate(question.options.length, (optIdx) {
-                      bool isSelected = _answers[qId] == optIdx;
-                      String optionLetter = String.fromCharCode(65 + optIdx); // A, B, C, D
-                      return InkWell(
-                        onTap: () { setState(() => _answers[qId] = optIdx); _saveState(); },
-                        child: Container(
-                          margin: const EdgeInsets.only(bottom: 12), padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(color: isSelected ? brassAccent.withOpacity(0.3) : paperBg, border: Border.all(color: inkBlack, width: isSelected ? 3 : 2)),
-                          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                            Radio<int>(value: optIdx, groupValue: _answers[qId], activeColor: inkBlack, onChanged: (v) { setState(() => _answers[qId] = v!); _saveState(); }), 
-                            Text('$optionLetter. ', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                            // CUSTOM PARSER INJECTED HERE
-                            Expanded(child: BrutalistMarkdown(data: question.options[optIdx]))
-                          ]),
-                        ),
-                      );
-                    }),
-                  ],
-                );
-              },
-            )),
-            Container(
-              decoration: BoxDecoration(border: Border(top: BorderSide(color: inkBlack, width: 3)), color: paperBg), padding: const EdgeInsets.all(8),
-              child: Column(children: [
-                Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
-                  OutlinedButton(onPressed: () { final qId = widget.questions[_currentIndex].id; setState(() { _answers.remove(qId); _statuses[qId] = QuestionStatus.notAnswered.index; }); _saveState(); }, child: const Text('CLEAR')),
-                  OutlinedButton(onPressed: () { final qId = widget.questions[_currentIndex].id; _updateStatusAndNext(_answers.containsKey(qId) ? QuestionStatus.answeredAndMarked : QuestionStatus.markedForReview); }, child: const Text('MARK & NEXT')),
+        // SAFEAREA IMPLEMENTED HERE
+        body: SafeArea(
+          child: Column(
+            children: [
+              LinearProgressIndicator(value: (_currentIndex + 1) / widget.questions.length, backgroundColor: paperBg, color: inkBlack, minHeight: 4),
+              Expanded(child: PageView.builder(
+                controller: _pageController, onPageChanged: _onPageChanged, itemCount: widget.questions.length,
+                itemBuilder: (context, idx) {
+                  final question = widget.questions[idx]; final qId = question.id;
+                  return ListView(
+                    padding: const EdgeInsets.all(16),
+                    children: [
+                      Text('ID: $qId [${idx + 1}/${widget.questions.length}]', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.grey)),
+                      const Divider(height: 32),
+                      // CUSTOM PARSER INJECTED HERE
+                      BrutalistMarkdown(data: question.text),
+                      const SizedBox(height: 32),
+                      ...List.generate(question.options.length, (optIdx) {
+                        bool isSelected = _answers[qId] == optIdx;
+                        String optionLetter = String.fromCharCode(65 + optIdx); // A, B, C, D
+                        return InkWell(
+                          onTap: () { setState(() => _answers[qId] = optIdx); _saveState(); },
+                          child: Container(
+                            margin: const EdgeInsets.only(bottom: 12), padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(color: isSelected ? brassAccent.withOpacity(0.3) : paperBg, border: Border.all(color: inkBlack, width: isSelected ? 3 : 2)),
+                            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              Radio<int>(value: optIdx, groupValue: _answers[qId], activeColor: inkBlack, onChanged: (v) { setState(() => _answers[qId] = v!); _saveState(); }), 
+                              Text('$optionLetter. ', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                              // CUSTOM PARSER INJECTED HERE
+                              Expanded(child: BrutalistMarkdown(data: question.options[optIdx]))
+                            ]),
+                          ),
+                        );
+                      }),
+                    ],
+                  );
+                },
+              )),
+              Container(
+                decoration: BoxDecoration(border: Border(top: BorderSide(color: inkBlack, width: 3)), color: paperBg), padding: const EdgeInsets.all(8),
+                child: Column(children: [
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+                    OutlinedButton(onPressed: () { final qId = widget.questions[_currentIndex].id; setState(() { _answers.remove(qId); _statuses[qId] = QuestionStatus.notAnswered.index; }); _saveState(); }, child: const Text('CLEAR')),
+                    OutlinedButton(onPressed: () { final qId = widget.questions[_currentIndex].id; _updateStatusAndNext(_answers.containsKey(qId) ? QuestionStatus.answeredAndMarked : QuestionStatus.markedForReview); }, child: const Text('MARK & NEXT')),
+                  ]),
+                  const SizedBox(height: 8),
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+                    if (_currentIndex > 0) FilledButton(style: FilledButton.styleFrom(backgroundColor: Colors.grey.shade700), onPressed: () => _pageController.previousPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut), child: const Text('PREV')),
+                    if (_currentIndex < widget.questions.length - 1) FilledButton(onPressed: () { final qId = widget.questions[_currentIndex].id; _updateStatusAndNext(_answers.containsKey(qId) ? QuestionStatus.answered : QuestionStatus.notAnswered); }, child: const Text('SAVE & NEXT'))
+                    else FilledButton(style: FilledButton.styleFrom(backgroundColor: steamGreen), onPressed: _submitTest, child: const Text('SUBMIT TEST')),
+                  ])
                 ]),
-                const SizedBox(height: 8),
-                Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
-                  if (_currentIndex > 0) FilledButton(style: FilledButton.styleFrom(backgroundColor: Colors.grey.shade700), onPressed: () => _pageController.previousPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut), child: const Text('PREV')),
-                  if (_currentIndex < widget.questions.length - 1) FilledButton(onPressed: () { final qId = widget.questions[_currentIndex].id; _updateStatusAndNext(_answers.containsKey(qId) ? QuestionStatus.answered : QuestionStatus.notAnswered); }, child: const Text('SAVE & NEXT'))
-                  else FilledButton(style: FilledButton.styleFrom(backgroundColor: steamGreen), onPressed: _submitTest, child: const Text('SUBMIT TEST')),
-                ])
-              ]),
-            )
-          ],
+              )
+            ],
+          ),
         ),
       ),
     );
