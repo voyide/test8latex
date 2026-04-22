@@ -84,7 +84,7 @@ class ExamApp extends StatelessWidget {
           elevation: 0,
           shape: Border(bottom: BorderSide(color: Color(0xFF2B2B2B), width: 3)),
         ),
-        cardTheme: const CardTheme(
+        cardTheme: const CardThemeData(
           color: Color(0xFFE2DACC),
           elevation: 0,
           shape: RoundedRectangleBorder(side: BorderSide(color: Color(0xFF2B2B2B), width: 2), borderRadius: BorderRadius.zero),
