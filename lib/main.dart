@@ -105,8 +105,11 @@ class BrutalistMarkdown extends StatelessWidget {
         p: const TextStyle(fontSize: 16, height: 1.5, fontFamily: 'sans-serif', color: Color(0xFF1A1A1A)),
       ),
       extensionSet: md.ExtensionSet(
-        [md.BlockSyntax()],
-        [md.InlineHtmlSyntax(), LatexInlineSyntax(), md.EmojiSyntax()],
+        md.ExtensionSet.gitHubFlavored.blockSyntaxes,
+        <md.InlineSyntax>[
+          ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes,
+          LatexInlineSyntax(),
+        ],
       ),
       builders: {'latex': LatexElementBuilder()},
     );
@@ -578,7 +581,6 @@ class _ActiveTestScreenState extends State<ActiveTestScreen> {
 }
 
 // --- 5. ANALYSIS SCREEN ---
-// (Unchanged functionally from previous iteration, just updated to use BrutalistMarkdown)
 
 class AnalysisScreen extends StatefulWidget {
   final Test? test;
