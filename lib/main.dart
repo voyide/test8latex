@@ -110,7 +110,7 @@ final ThemeData brutalistTheme = ThemeData(
     backgroundColor: paperBg, foregroundColor: inkBlack, elevation: 0, centerTitle: true,
     shape: Border(bottom: BorderSide(color: inkBlack, width: 3)),
   ),
-  cardTheme: CardTheme(
+  cardTheme: CardThemeData(
     color: paperBg, elevation: 0, margin: const EdgeInsets.only(bottom: 16),
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.zero, side: BorderSide(color: inkBlack, width: 2)),
   ),
@@ -134,7 +134,7 @@ final ThemeData brutalistTheme = ThemeData(
     enabledBorder: const OutlineInputBorder(borderRadius: BorderRadius.zero, borderSide: BorderSide(color: Colors.black, width: 2)),
     focusedBorder: const OutlineInputBorder(borderRadius: BorderRadius.zero, borderSide: BorderSide(color: Colors.black, width: 3)),
   ),
-  dialogTheme: DialogTheme(backgroundColor: paperBg, shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero, side: BorderSide(color: Colors.black, width: 3))),
+  dialogTheme: DialogThemeData(backgroundColor: paperBg, shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero, side: BorderSide(color: Colors.black, width: 3))),
   drawerTheme: DrawerThemeData(backgroundColor: paperBg, shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero, side: BorderSide(color: Colors.black, width: 2))),
   dividerTheme: DividerThemeData(color: inkBlack, thickness: 2),
 );
@@ -1192,7 +1192,7 @@ class GlobalStatsTab extends StatelessWidget {
             titlesData: FlTitlesData(
               bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, getTitlesWidget: (val, meta) => Padding(padding: const EdgeInsets.only(top: 8), child: Text(categoryLabels[val.toInt()], style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold))))),
               leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40, getTitlesWidget: (val, meta) => Text('${val.toInt()}%', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)))),
-              topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)), rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+              topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)), rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
             ),
             gridData: FlGridData(show: true, drawVerticalLine: false, getDrawingHorizontalLine: (val) => FlLine(color: Colors.black26, strokeWidth: 1, dashArray: [4, 4])), borderData: FlBorderData(show: false), barGroups: barGroups,
           )),
