@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -12,23 +13,35 @@ void main() async {
   runApp(ExamApp(prefs: prefs));
 }
 
-// --- AST MARKDOWN EXTENSIONS FOR INLINE LATEX ---
+// --- AST MARKDOWN EXTENSIONS FOR INLINE & BLOCK LATEX ---
 
-class LatexInlineSyntax extends md.InlineSyntax {
-  LatexInlineSyntax() : super(r'\$([^\$]+)\$');
+class BlockLatexSyntax extends md.InlineSyntax {
+  BlockLatexSyntax() : super(r'\$\$([^\$]+)\$\$');
   @override
   bool onMatch(md.InlineParser parser, Match match) {
-    parser.addNode(md.Element.text('latex', match[1]!));
+    parser.addNode(md.Element.text('latex_block', match[1]!));
+    return true;
+  }
+}
+
+class InlineLatexSyntax extends md.InlineSyntax {
+  InlineLatexSyntax() : super(r'\$([^\$]+)\$');
+  @override
+  bool onMatch(md.InlineParser parser, Match match) {
+    parser.addNode(md.Element.text('latex_inline', match[1]!));
     return true;
   }
 }
 
 class LatexElementBuilder extends MarkdownElementBuilder {
+  final MathStyle mathStyle;
+  LatexElementBuilder({required this.mathStyle});
+
   @override
   Widget visitElementAfter(md.Element element, TextStyle? preferredStyle) {
     return Math.tex(
       element.textContent,
-      mathStyle: MathStyle.text,
+      mathStyle: mathStyle,
       textStyle: preferredStyle?.copyWith(fontSize: 16),
     );
   }
@@ -71,9 +84,10 @@ class ExamApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Brutalist Exam',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        scaffoldBackgroundColor: const Color(0xFFEBE3D5), // Beige paper background
-        primaryColor: const Color(0xFF1A1A1A), // Almost black
+        scaffoldBackgroundColor: const Color(0xFFEBE3D5), 
+        primaryColor: const Color(0xFF1A1A1A), 
         fontFamily: 'monospace',
         appBarTheme: const AppBarTheme(
           backgroundColor: Color(0xFFEBE3D5),
@@ -82,6 +96,7 @@ class ExamApp extends StatelessWidget {
           centerTitle: true,
           shape: Border(bottom: BorderSide(color: Color(0xFF1A1A1A), width: 2)),
           titleTextStyle: TextStyle(color: Color(0xFF1A1A1A), fontFamily: 'monospace', fontSize: 20, letterSpacing: 2, fontWeight: FontWeight.bold),
+          iconTheme: IconThemeData(color: Color(0xFF1A1A1A)),
         ),
         useMaterial3: false,
       ),
@@ -91,7 +106,7 @@ class ExamApp extends StatelessWidget {
 }
 
 // --- CUSTOM MARKDOWN RENDERER WIDGET ---
-// Wraps text so it can parse both standard markdown and inline $latex$
+
 class BrutalistMarkdown extends StatelessWidget {
   final String data;
   const BrutalistMarkdown({super.key, required this.data});
@@ -108,15 +123,19 @@ class BrutalistMarkdown extends StatelessWidget {
         md.ExtensionSet.gitHubFlavored.blockSyntaxes,
         <md.InlineSyntax>[
           ...md.ExtensionSet.gitHubFlavored.inlineSyntaxes,
-          LatexInlineSyntax(),
+          BlockLatexSyntax(), 
+          InlineLatexSyntax(),
         ],
       ),
-      builders: {'latex': LatexElementBuilder()},
+      builders: {
+        'latex_block': LatexElementBuilder(mathStyle: MathStyle.display), 
+        'latex_inline': LatexElementBuilder(mathStyle: MathStyle.text),    
+      },
     );
   }
 }
 
-// --- MAIN NAVIGATION (BOTTOM TABS) ---
+// --- MAIN NAVIGATION (BOTTOM TABS & STATE CONTROLLER) ---
 
 class MainNavigation extends StatefulWidget {
   final SharedPreferences prefs;
@@ -145,11 +164,9 @@ class _MainNavigationState extends State<MainNavigation> {
       final List decoded = jsonDecode(rawTests);
       tests = decoded.map((e) => Test.fromJson(e)).toList();
     }
-    
     if (rawOrder != null) {
       categoryOrder = List<String>.from(jsonDecode(rawOrder));
     }
-
     _syncCategories();
   }
 
@@ -166,6 +183,20 @@ class _MainNavigationState extends State<MainNavigation> {
   void _saveData() {
     widget.prefs.setString('tests', jsonEncode(tests.map((e) => e.toJson()).toList()));
     widget.prefs.setString('categoryOrder', jsonEncode(categoryOrder));
+  }
+
+  void _deleteCategory(String category) {
+    setState(() {
+      tests.removeWhere((t) => t.category == category);
+      _syncCategories();
+    });
+  }
+
+  void _deleteTest(String testId) {
+    setState(() {
+      tests.removeWhere((t) => t.id == testId);
+      _syncCategories();
+    });
   }
 
   Widget _buildBottomNav() {
@@ -194,7 +225,7 @@ class _MainNavigationState extends State<MainNavigation> {
   Widget build(BuildContext context) {
     Widget body;
     switch (_currentIndex) {
-      case 0: body = DirectoryScreen(tests: tests, categoryOrder: categoryOrder, onUpdate: () { _loadData(); }); break;
+      case 0: body = DirectoryScreen(tests: tests, categoryOrder: categoryOrder, onUpdate: _loadData, onDeleteCategory: _deleteCategory, onDeleteTest: _deleteTest); break;
       case 1: body = OrganizeScreen(categoryOrder: categoryOrder, onReorder: (newOrder) { setState(() { categoryOrder = newOrder; _saveData(); }); }); break;
       case 2: body = ImportScreen(onImport: (t) { tests.add(t); _syncCategories(); }); break;
       case 3: body = GlobalAnalysisScreen(tests: tests); break;
@@ -205,17 +236,37 @@ class _MainNavigationState extends State<MainNavigation> {
   }
 }
 
-// --- 1. DIRECTORY SCREEN (HOME) ---
+// --- 1. DIRECTORY SCREEN (HOME & DELETION) ---
 
 class DirectoryScreen extends StatelessWidget {
   final List<Test> tests;
   final List<String> categoryOrder;
   final VoidCallback onUpdate;
+  final Function(String) onDeleteCategory;
+  final Function(String) onDeleteTest;
 
-  const DirectoryScreen({super.key, required this.tests, required this.categoryOrder, required this.onUpdate});
+  const DirectoryScreen({super.key, required this.tests, required this.categoryOrder, required this.onUpdate, required this.onDeleteCategory, required this.onDeleteTest});
+
+  void _confirmDelete(BuildContext context, String cat) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFFEBE3D5),
+        shape: const RoundedRectangleBorder(side: BorderSide(color: Color(0xFF1A1A1A), width: 2), borderRadius: BorderRadius.zero),
+        title: const Text('DELETE DIRECTORY?', style: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'monospace')),
+        content: const Text('This will permanently delete all tests and stats inside this category.', style: TextStyle(fontFamily: 'monospace')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('CANCEL', style: TextStyle(color: Color(0xFF1A1A1A), fontWeight: FontWeight.bold))),
+          TextButton(onPressed: () { onDeleteCategory(cat); Navigator.pop(ctx); }, child: const Text('DELETE', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (categoryOrder.isEmpty) return const Center(child: Text('NO DIRECTORIES. IMPORT DATA.', style: TextStyle(fontWeight: FontWeight.bold)));
+    
     return Scaffold(
       appBar: AppBar(title: const Text('INDEX: DIRECTORIES')),
       body: ListView.builder(
@@ -224,7 +275,8 @@ class DirectoryScreen extends StatelessWidget {
         itemBuilder: (context, index) {
           final cat = categoryOrder[index];
           return InkWell(
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SubcategoryScreen(category: cat, tests: tests.where((t) => t.category == cat).toList(), onUpdate: onUpdate))),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SubcategoryScreen(category: cat, tests: tests.where((t) => t.category == cat).toList(), onUpdate: onUpdate, onDeleteTest: onDeleteTest))),
+            onLongPress: () => _confirmDelete(context, cat),
             child: Container(
               margin: const EdgeInsets.only(bottom: 12),
               padding: const EdgeInsets.all(16),
@@ -234,6 +286,7 @@ class DirectoryScreen extends StatelessWidget {
                   const Icon(Icons.folder_outlined, color: Color(0xFF1A1A1A)),
                   const SizedBox(width: 16),
                   Expanded(child: Text(cat.toUpperCase(), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, letterSpacing: 2))),
+                  IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red), onPressed: () => _confirmDelete(context, cat)),
                   const Icon(Icons.chevron_right, color: Color(0xFF1A1A1A)),
                 ],
               ),
@@ -249,8 +302,24 @@ class SubcategoryScreen extends StatelessWidget {
   final String category;
   final List<Test> tests;
   final VoidCallback onUpdate;
+  final Function(String) onDeleteTest;
 
-  const SubcategoryScreen({super.key, required this.category, required this.tests, required this.onUpdate});
+  const SubcategoryScreen({super.key, required this.category, required this.tests, required this.onUpdate, required this.onDeleteTest});
+
+  void _confirmDelete(BuildContext context, String testId) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFFEBE3D5),
+        shape: const RoundedRectangleBorder(side: BorderSide(color: Color(0xFF1A1A1A), width: 2), borderRadius: BorderRadius.zero),
+        title: const Text('DELETE TEST?', style: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'monospace')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('CANCEL', style: TextStyle(color: Color(0xFF1A1A1A), fontWeight: FontWeight.bold))),
+          TextButton(onPressed: () { onDeleteTest(testId); Navigator.pop(ctx); Navigator.pop(context); }, child: const Text('DELETE', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -273,16 +342,23 @@ class SubcategoryScreen extends StatelessWidget {
                 onUpdate();
               }
             },
+            onLongPress: () => _confirmDelete(context, t.id),
             child: Container(
               margin: const EdgeInsets.only(bottom: 12),
               padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(border: Border.all(color: const Color(0xFF1A1A1A), width: 2), color: t.isCompleted ? Colors.black12 : Colors.transparent),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              decoration: BoxDecoration(border: Border.all(color: const Color(0xFF1A1A1A), width: 2), color: t.isCompleted ? const Color(0xFF1A1A1A).withOpacity(0.05) : Colors.transparent),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(t.subcategory.toUpperCase(), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                  const SizedBox(height: 4),
-                  Text(t.isCompleted ? 'STATUS: COMPLETED' : 'STATUS: PENDING', style: TextStyle(color: t.isCompleted ? Colors.red[900] : Colors.green[900], fontWeight: FontWeight.bold)),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(t.subcategory.toUpperCase(), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      const SizedBox(height: 4),
+                      Text(t.isCompleted ? 'STATUS: COMPLETED' : 'STATUS: PENDING', style: TextStyle(color: t.isCompleted ? Colors.red[900] : Colors.green[900], fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                  IconButton(icon: const Icon(Icons.delete_outline, color: Colors.red), onPressed: () => _confirmDelete(context, t.id)),
                 ],
               ),
             ),
@@ -303,6 +379,8 @@ class OrganizeScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (categoryOrder.isEmpty) return const Center(child: Text('NO DIRECTORIES TO ORGANIZE.', style: TextStyle(fontWeight: FontWeight.bold)));
+
     return Scaffold(
       appBar: AppBar(title: const Text('REORGANIZE (HOLD & DRAG)')),
       body: ReorderableListView.builder(
@@ -335,7 +413,7 @@ class OrganizeScreen extends StatelessWidget {
   }
 }
 
-// --- 3. IMPORT SCREEN ---
+// --- 3. IMPORT SCREEN (WITH AI PROMPT TEMPLATE & SECURE PARSER) ---
 
 class ImportScreen extends StatefulWidget {
   final Function(Test) onImport;
@@ -347,6 +425,33 @@ class ImportScreen extends StatefulWidget {
 
 class _ImportScreenState extends State<ImportScreen> {
   final ctrlData = TextEditingController();
+
+  final String aiPrompt = '''You are an expert test creator. Generate a multiple-choice test about [TOPIC]. 
+You MUST strictly output the test using the exact plaintext format below. Do not use code blocks, JSON, or any conversational text.
+
+@@CATEGORY@@
+[Broad Category]
+@@SUBCATEGORY@@
+[Specific Topic]
+===BEGIN_QUESTION===
+@@MARKDOWN@@
+[Question text here. Use \$ for inline math and \$\$ for block math equations.]
+@@OPT_A@@
+[Option A text]
+@@OPT_B@@
+[Option B text]
+@@OPT_C@@
+[Option C text]
+@@OPT_D@@
+[Option D text]
+@@ANSWER@@
+[Correct Letter: A, B, C, or D]
+===END_QUESTION===''';
+
+  void _copyPrompt() {
+    Clipboard.setData(ClipboardData(text: aiPrompt));
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('AI PROMPT COPIED TO CLIPBOARD', style: TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.bold))));
+  }
 
   void _processImport() {
     try {
@@ -364,7 +469,15 @@ class _ImportScreenState extends State<ImportScreen> {
       List<Question> parsedQuestions = [];
 
       for (int i = 1; i < blocks.length; i++) {
-        var block = blocks[i].replaceAll('===END_QUESTION===', '').trim();
+        var block = blocks[i];
+        
+        // HARD STOP: This prevents the parser from reading into the next file's metadata
+        int endIdx = block.indexOf('===END_QUESTION===');
+        if (endIdx != -1) {
+          block = block.substring(0, endIdx); 
+        }
+        
+        block = block.trim();
         if (block.isEmpty) continue;
         
         String extract(String tag, String nextTag) {
@@ -388,11 +501,13 @@ class _ImportScreenState extends State<ImportScreen> {
 
       if (parsedQuestions.isNotEmpty) {
         widget.onImport(Test(id: DateTime.now().millisecondsSinceEpoch.toString(), category: category, subcategory: subcategory, questions: parsedQuestions));
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('IMPORT SUCCESSFUL')));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('IMPORT SUCCESSFUL', style: TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.bold))));
         ctrlData.clear();
+      } else {
+        throw Exception("No valid questions found.");
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PARSE ERROR. CHECK SYNTAX.')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PARSE ERROR. CHECK SYNTAX.', style: TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.bold, color: Colors.red))));
     }
   }
 
@@ -405,10 +520,30 @@ class _ImportScreenState extends State<ImportScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text('PASTE RAW DATA BELOW (INCLUDE @@CATEGORY@@ AND @@SUBCATEGORY@@ HEADERS)', style: TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(border: Border.all(color: const Color(0xFF1A1A1A), width: 2), color: const Color(0xFF1A1A1A).withOpacity(0.05)),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('AI GENERATION TEMPLATE', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  const SizedBox(height: 8),
+                  const Text('Use this prompt to ensure the AI generates a perfectly parsable test.', style: TextStyle(fontSize: 12)),
+                  const SizedBox(height: 12),
+                  ElevatedButton.icon(
+                    onPressed: _copyPrompt,
+                    icon: const Icon(Icons.copy, color: Color(0xFFEBE3D5)),
+                    label: const Text('COPY PROMPT', style: TextStyle(color: Color(0xFFEBE3D5), fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF1A1A1A), shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero)),
+                  )
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+            const Text('PASTE RAW DATA BELOW:', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
             TextField(
-              controller: ctrlData, maxLines: 20,
+              controller: ctrlData, maxLines: 15,
               decoration: const InputDecoration(border: OutlineInputBorder(borderRadius: BorderRadius.zero, borderSide: BorderSide(color: Color(0xFF1A1A1A), width: 2))),
             ),
             const SizedBox(height: 16),
@@ -424,7 +559,7 @@ class _ImportScreenState extends State<ImportScreen> {
   }
 }
 
-// --- 4. ACTIVE TEST SCREEN (UI CLONED FROM IMAGE) ---
+// --- 4. ACTIVE TEST SCREEN ---
 
 class ActiveTestScreen extends StatefulWidget {
   final Test test;
@@ -501,7 +636,6 @@ class _ActiveTestScreenState extends State<ActiveTestScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // TOP HEADER
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
               decoration: const BoxDecoration(border: Border(bottom: BorderSide(width: 2, color: Color(0xFF1A1A1A)))),
@@ -513,7 +647,6 @@ class _ActiveTestScreenState extends State<ActiveTestScreen> {
                 ],
               ),
             ),
-            // QUESTION CONTENT
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(16),
@@ -530,7 +663,6 @@ class _ActiveTestScreenState extends State<ActiveTestScreen> {
                 ),
               ),
             ),
-            // NAVIGATION GRID & SUBMIT (BOTTOM ALIGNED)
             Container(
               decoration: const BoxDecoration(border: Border(top: BorderSide(width: 2, color: Color(0xFF1A1A1A)))),
               child: Column(
@@ -580,7 +712,7 @@ class _ActiveTestScreenState extends State<ActiveTestScreen> {
   }
 }
 
-// --- 5. ANALYSIS SCREEN ---
+// --- 5. ANALYSIS SCREEN (STYLED TO MATCH SCREENSHOT) ---
 
 class AnalysisScreen extends StatefulWidget {
   final Test? test;
@@ -624,11 +756,12 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
         title: Text(widget.isGlobal ? 'GLOBAL STATS' : 'TEST STATS'),
         actions: [
           PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
             onSelected: (val) { sortMode = val; _applySort(); },
             itemBuilder: (context) => [
-              const PopupMenuItem(value: 'DEFAULT', child: Text('SORT: CORRECTNESS')),
-              const PopupMenuItem(value: 'TIME_ASC', child: Text('SORT: FASTEST')),
-              const PopupMenuItem(value: 'TIME_DESC', child: Text('SORT: SLOWEST')),
+              const PopupMenuItem(value: 'DEFAULT', child: Text('SORT: CORRECTNESS', style: TextStyle(fontFamily: 'monospace'))),
+              const PopupMenuItem(value: 'TIME_ASC', child: Text('SORT: FASTEST', style: TextStyle(fontFamily: 'monospace'))),
+              const PopupMenuItem(value: 'TIME_DESC', child: Text('SORT: SLOWEST', style: TextStyle(fontFamily: 'monospace'))),
             ],
           )
         ],
@@ -642,12 +775,13 @@ class _AnalysisScreenState extends State<AnalysisScreen> {
           return Container(
             margin: const EdgeInsets.only(bottom: 16),
             padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(border: Border.all(color: const Color(0xFF1A1A1A), width: 2), color: isCorrect ? Colors.green.withOpacity(0.1) : Colors.red.withOpacity(0.1)),
+            decoration: BoxDecoration(border: Border.all(color: const Color(0xFF1A1A1A), width: 2), color: const Color(0xFFEBE3D5)),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(isCorrect ? 'STATUS: CORRECT' : 'STATUS: INCORRECT', style: TextStyle(fontWeight: FontWeight.bold, color: isCorrect ? Colors.green[900] : Colors.red[900])),
-                Text('TIME: ${q.timeSpentSeconds}s', style: const TextStyle(fontWeight: FontWeight.bold)),
+                Text(isCorrect ? 'STATUS: CORRECT' : 'STATUS: INCORRECT', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: isCorrect ? Colors.green[800] : Colors.red[800])),
+                const SizedBox(height: 4),
+                Text('TIME: ${q.timeSpentSeconds}s', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                 const Divider(color: Color(0xFF1A1A1A), thickness: 2, height: 24),
                 BrutalistMarkdown(data: q.markdown),
                 const SizedBox(height: 16),
@@ -669,6 +803,8 @@ class GlobalAnalysisScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     List<Question> allQuestions = [];
+    // Only compile stats from completed tests. Because deleting a directory 
+    // deletes the underlying tests, deleted tests naturally vanish from here.
     for (var t in tests.where((t) => t.isCompleted)) { allQuestions.addAll(t.questions); }
     if (allQuestions.isEmpty) return const Scaffold(body: Center(child: Text('NO COMPLETED TESTS', style: TextStyle(fontWeight: FontWeight.bold))));
     return AnalysisScreen(isGlobal: true, allQuestions: allQuestions);
